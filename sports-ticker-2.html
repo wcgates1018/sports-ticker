@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Ticker">
+<meta name="theme-color" content="#0b0705">
+<title>Scoreboard Ticker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one oversized LED band centered on the screen, a slim status line above it, controls tucked below.
+   Single committed look: amber dot-matrix on a dark cabinet. */
+:root {
+  --cabinet: #0b0705;
+  --panel: #150e09;
+  --amber: #ffb224;
+  --hot: #ffe6a8;
+  --live: #ff4d3d;
+  --final: #8a6a2e;
+  --rule: #2a1d12;
+  --font-led: "DotGothic16", "Courier New", monospace;
+  --font-ui: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--cabinet);
+  color: var(--amber);
+  font-family: var(--font-ui);
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+}
+.status {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--final);
+}
+.status .src { display: inline-flex; align-items: center; gap: 8px; color: var(--amber); }
+.lamp { width: 9px; height: 9px; border-radius: 50%; background: var(--final); box-shadow: 0 0 0 1px var(--rule); }
+.lamp.on { background: #4dff8a; box-shadow: 0 0 10px #4dff8a; }
+.lamp.demo { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+
+.stage { flex: 1; min-height: 0; display: flex; align-items: center; }
+.band {
+  position: relative; width: 100%;
+  height: clamp(130px, 34vh, 340px);
+  background: #050302;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 0 60px rgba(0,0,0,.9);
+}
+.track {
+  position: absolute; left: 0; top: 0; height: 100%;
+  display: flex; align-items: center; white-space: nowrap;
+  font-family: var(--font-led);
+  font-size: clamp(56px, 17vh, 170px);
+  line-height: 1;
+  will-change: transform;
+  text-shadow: 0 0 14px rgba(255,178,36,.55);
+}
+.band::after { /* LED lens grid: dark gaps with round holes so type reads as dots */
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(circle at center, transparent 0 52%, #050302 62%);
+  background-size: 6px 6px;
+}
+.g { display: inline-flex; align-items: center; gap: .32em; padding-right: .9em; }
+.lg { color: var(--final); font-size: .5em; letter-spacing: .08em; margin-right: .1em; }
+.t { color: var(--amber); }
+.sc { color: var(--hot); }
+.sc.lead { color: #fff; text-shadow: 0 0 18px rgba(255,255,255,.7); }
+.dash, .at { color: var(--final); }
+.st { font-size: .5em; letter-spacing: .06em; margin-left: .25em; color: var(--final); }
+.st.live { color: var(--live); text-shadow: 0 0 14px rgba(255,77,61,.8); }
+.st.pre { color: var(--amber); }
+.sep { color: var(--final); padding-right: .9em; font-size: .6em; }
+.msg { color: var(--amber); padding-left: .6em; }
+
+.controls {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.chip, .btn {
+  font: 500 13px/1 var(--font-ui); letter-spacing: .08em;
+  min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--rule); border-radius: 4px;
+  background: var(--panel); color: var(--final);
+  cursor: pointer; touch-action: manipulation;
+}
+.chip[aria-pressed="true"] { color: var(--amber); border-color: var(--amber); box-shadow: 0 0 10px rgba(255,178,36,.25); }
+.btn { color: var(--amber); }
+.chip:focus-visible, .btn:focus-visible, input:focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
+.speed { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--final); }
+.speed input { width: 140px; accent-color: var(--amber); }
+.spacer { flex: 1; }
+@media (max-width: 520px) { .spacer { display: none; } }
+</style>
+</head>
+<body><div class="status">
+  <span class="src"><span class="lamp" id="lamp"></span><span id="srcText">Starting</span></span>
+  <span id="stamp"></span>
+</div>
+
+<div class="stage">
+  <div class="band" id="band" aria-label="Scrolling sports scores" role="marquee">
+    <div class="track" id="track"></div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="chips" id="chips"></div>
+  <span class="spacer"></span>
+  <label class="speed">Speed <input type="range" id="speed" min="30" max="260" step="10" value="110"></label>
+  <button class="btn" id="pause" type="button">PAUSE</button>
+  <button class="btn" id="full" type="button">FULLSCREEN</button>
+</div>
+
+<script>
+(function () {
+  var LEAGUES = [
+    { id: 'nfl',  label: 'NFL',  path: 'football/nfl' },
+    { id: 'ncaaf', label: 'NCAAF', path: 'football/college-football', q: '?groups=80&limit=100' },
+    { id: 'mlb',  label: 'MLB',  path: 'baseball/mlb' },
+    { id: 'nba',  label: 'NBA',  path: 'basketball/nba' },
+    { id: 'nhl',  label: 'NHL',  path: 'hockey/nhl' },
+    { id: 'ncaam', label: 'NCAAM', path: 'basketball/mens-college-basketball', q: '?groups=50&limit=100' },
+    { id: 'epl',  label: 'EPL',  path: 'soccer/eng.1' },
+    { id: 'mls',  label: 'MLS',  path: 'soccer/usa.1' }
+  ];
+
+  /* Sample rows shown whenever the live feed cannot be reached. Not real results. */
+  var DEMO = [
+    { lg: 'NFL', away: ['KC', 27], home: ['BUF', 24], state: 'post', detail: 'FINAL' },
+    { lg: 'NFL', away: ['DAL', 17], home: ['PHI', 20], state: 'in', detail: 'Q4 2:41' },
+    { lg: 'NFL', away: ['SF', null], home: ['SEA', null], state: 'pre', detail: 'SUN 3:25 PM' },
+    { lg: 'MLB', away: ['LAD', 5], home: ['NYM', 3], state: 'post', detail: 'FINAL' },
+    { lg: 'MLB', away: ['HOU', 2], home: ['NYY', 2], state: 'in', detail: 'TOP 7' },
+    { lg: 'NHL', away: ['TOR', 4], home: ['BOS', 3], state: 'post', detail: 'FINAL/OT' },
+    { lg: 'NBA', away: ['BOS', null], home: ['NYK', null], state: 'pre', detail: '7:30 PM' },
+    { lg: 'NCAAF', away: ['TEX', 31], home: ['OU', 28], state: 'post', detail: 'FINAL' },
+    { lg: 'EPL', away: ['ARS', 2], home: ['CHE', 1], state: 'in', detail: "74'" }
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var track = $('track'), band = $('band');
+  var enabled = {}, speed = 110, paused = false, items = [], isDemo = true;
+  var x = 0, loopW = 0, last = 0;
+
+  LEAGUES.forEach(function (l) { enabled[l.id] = ['nfl','ncaaf','mlb','nba','nhl'].indexOf(l.id) > -1; });
+  try {
+    var saved = JSON.parse(localStorage.getItem('ticker.enabled') || 'null');
+    if (saved) Object.keys(saved).forEach(function (k) { if (k in enabled) enabled[k] = !!saved[k]; });
+    var sp = parseInt(localStorage.getItem('ticker.speed') || '', 10);
+    if (sp) speed = sp;
+  } catch (e) {}
+  $('speed').value = speed;
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function save() { try { localStorage.setItem('ticker.enabled', JSON.stringify(enabled)); localStorage.setItem('ticker.speed', String(speed)); } catch (e) {} }
+
+  /* League chips */
+  var chips = $('chips');
+  LEAGUES.forEach(function (l) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'chip'; b.textContent = l.label;
+    b.setAttribute('aria-pressed', enabled[l.id] ? 'true' : 'false');
+    b.addEventListener('click', function () {
+      enabled[l.id] = !enabled[l.id];
+      b.setAttribute('aria-pressed', enabled[l.id] ? 'true' : 'false');
+      save(); render(); refresh();
+    });
+    chips.appendChild(b);
+  });
+
+  /* Build the scrolling strip */
+  function itemHtml(it) {
+    var aw = it.away[1], hw = it.home[1], pre = it.state === 'pre';
+    var aLead = !pre && aw != null && hw != null && +aw > +hw;
+    var hLead = !pre && aw != null && hw != null && +hw > +aw;
+    var h = '<span class="g"><span class="lg">' + esc(it.lg) + '</span>';
+    if (pre) {
+      h += '<span class="t">' + esc(it.away[0]) + '</span><span class="at">@</span><span class="t">' + esc(it.home[0]) + '</span>';
+    } else {
+      h += '<span class="t">' + esc(it.away[0]) + '</span><span class="sc' + (aLead ? ' lead' : '') + '">' + esc(aw == null ? '-' : aw) + '</span>' +
+           '<span class="dash">-</span>' +
+           '<span class="sc' + (hLead ? ' lead' : '') + '">' + esc(hw == null ? '-' : hw) + '</span><span class="t">' + esc(it.home[0]) + '</span>';
+    }
+    h += '<span class="st ' + (it.state === 'in' ? 'live' : it.state === 'pre' ? 'pre' : '') + '">' + esc(it.detail) + '</span></span><span class="sep">&#9670;</span>';
+    return h;
+  }
+
+  function render() {
+    var show = items.filter(function (it) { return enabled[it.id]; });
+    var unit = show.length
+      ? show.map(itemHtml).join('')
+      : '<span class="msg">NO GAMES ON THE BOARD</span><span class="sep">&#9670;</span>';
+    track.innerHTML = '<span id="probe" style="display:inline-flex">' + unit + '</span>';
+    var w = $('probe').getBoundingClientRect().width || 1;
+    var copies = Math.ceil(band.clientWidth / w) + 1;
+    var html = '';
+    for (var i = 0; i < copies; i++) html += unit;
+    track.innerHTML = html;
+    loopW = w; x = Math.min(x, 0);
+  }
+
+  /* Live data (ESPN public scoreboard) */
+  function parse(l, json) {
+    var out = [];
+    (json.events || []).forEach(function (ev) {
+      var c = ev.competitions && ev.competitions[0]; if (!c) return;
+      var home, away;
+      (c.competitors || []).forEach(function (t) { if (t.homeAway === 'home') home = t; else away = t; });
+      if (!home || !away) return;
+      var type = (ev.status && ev.status.type) || {};
+      var state = type.state || 'pre';
+      var detail = type.shortDetail || type.detail || '';
+      if (state === 'post') detail = (type.shortDetail || 'FINAL').toUpperCase();
+      if (state === 'pre') {
+        var d = new Date(ev.date);
+        detail = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })
+          .toUpperCase().replace(/:00(?=[\s  ]*[AP]M)/, '');
+      }
+      out.push({
+        id: l.id, lg: l.label, state: state, detail: detail.toUpperCase(),
+        away: [away.team.abbreviation || away.team.shortDisplayName, state === 'pre' ? null : away.score],
+        home: [home.team.abbreviation || home.team.shortDisplayName, state === 'pre' ? null : home.score]
+      });
+    });
+    return out;
+  }
+  var order = { in: 0, pre: 1, post: 2 };
+  function setSource(live, text) {
+    isDemo = !live;
+    $('lamp').className = 'lamp ' + (live ? 'on' : 'demo');
+    $('srcText').textContent = text;
+    $('stamp').textContent = (live ? 'Updated ' : 'Sample data ') + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' });
+  }
+  function useDemo(reason) {
+    items = DEMO.map(function (d) {
+      var id = (LEAGUES.filter(function (l) { return l.label === d.lg; })[0] || {}).id;
+      return { id: id, lg: d.lg, state: d.state, detail: d.detail, away: d.away, home: d.home };
+    });
+    setSource(false, 'Demo data' + (reason ? ' / ' + reason : ''));
+    render();
+  }
+  function refresh() {
+    var active = LEAGUES.filter(function (l) { return enabled[l.id]; });
+    if (!active.length) { render(); return; }
+    var ok = 0;
+    Promise.all(active.map(function (l) {
+      var ctl = new AbortController(); var to = setTimeout(function () { ctl.abort(); }, 8000);
+      return fetch('https://site.api.espn.com/apis/site/v2/sports/' + l.path + '/scoreboard' + (l.q || ''), { signal: ctl.signal })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (j) { clearTimeout(to); ok++; return parse(l, j); })
+        .catch(function () { clearTimeout(to); return []; });
+    })).then(function (groups) {
+      if (!ok) { useDemo('feed unreachable'); return; }
+      var all = [].concat.apply([], groups);
+      all.sort(function (a, b) { return order[a.state] - order[b.state]; });
+      items = all;
+      setSource(true, 'Live feed');
+      render();
+    });
+  }
+
+  /* Motion */
+  function frame(t) {
+    var dt = last ? Math.min(0.05, (t - last) / 1000) : 0; last = t;
+    if (!paused && loopW > 1) {
+      x -= speed * dt;
+      if (-x >= loopW) x += loopW;
+      track.style.transform = 'translate3d(' + x.toFixed(2) + 'px,0,0)';
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* Controls */
+  $('speed').addEventListener('input', function (e) { speed = +e.target.value; save(); });
+  $('pause').addEventListener('click', function (e) { paused = !paused; e.target.textContent = paused ? 'RESUME' : 'PAUSE'; });
+  var wake = null;
+  function keepAwake() {
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (s) { wake = s; }).catch(function () {}); } catch (e) {}
+  }
+  $('full').addEventListener('click', function () {
+    keepAwake();
+    try {
+      var el = document.documentElement;
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (el.requestFullscreen) el.requestFullscreen().catch(function () {});
+    } catch (e) {}
+  });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) keepAwake(); });
+  window.addEventListener('resize', function () { render(); });
+  document.addEventListener('click', keepAwake, { once: true });
+
+  useDemo('');
+  refresh();
+  setInterval(refresh, 60000);
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
