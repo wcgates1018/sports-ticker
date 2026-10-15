@@ -256,9 +256,9 @@ body {
       var detail = type.shortDetail || type.detail || '';
       if (state === 'post') detail = (type.shortDetail || 'FINAL').toUpperCase();
       var d = new Date(ev.date);
-      var day = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/Chicago' }).toUpperCase();
+      var day = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'undefined' }).toUpperCase();
       if (state === 'pre') {
-        detail = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })
+        detail = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'undefined' })
           .toUpperCase().replace(/:00(?=[\s  ]*[AP]M)/, '');
       }
       out.push({
